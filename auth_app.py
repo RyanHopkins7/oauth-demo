@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, redirect
+from cryptography.hazmat.primitives.asymmetric import rsa
 import json
 import hashlib
 import hmac
+import base64
 
 auth_app = Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -54,5 +56,42 @@ def oidc_conf():
         "code_challenge_methods_supported": ["S256"]
     }
 
+@auth_app.route("/keys")
+def jwks():
+    with open("pubkey.json", "r") as file:
+        public_jwk = json.loads(file.read())
+    return {"keys": [public_jwk]}
+
 if __name__ == "__main__":
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    private_numbers = private_key.private_numbers()
+    public_key = private_key.public_key()
+    public_numbers = public_key.public_numbers()
+
+    public_jwk = json.dumps({
+        "kty": "RSA",
+        "use": "sig",
+        "kid": "key1",
+        "alg": "RS256",
+        "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, byteorder="big")).decode("utf-8"),
+        "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(2048//8, byteorder="big")).decode("utf-8")
+    })
+
+    private_jwk = json.dumps({
+        "kty": "RSA",
+        "use": "sig",
+        "kid": "key1",
+        "alg": "RS256",
+        "d": base64.urlsafe_b64encode(private_numbers.d.to_bytes(2048//8, byteorder="big")).decode("utf-8")
+    })
+
+    with open("pubkey.json", "w") as file:
+        file.write(public_jwk)
+
+    with open("privkey.json", "w") as file:
+        file.write(private_jwk)
+
     auth_app.run(host="localhost", port="5000")
