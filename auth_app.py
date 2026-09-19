@@ -1,11 +1,21 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, redirect, session
+from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives.asymmetric import rsa
 import json
 import hashlib
 import hmac
 import base64
+import os
 
 auth_app = Flask(__name__, static_folder="static", static_url_path="/static")
+auth_app.secret_key = os.urandom(32)
+
+oidc_flows = {}
+registered_clients = {
+    "test_client": {
+        "redirect_uris": ["http://localhost:5001"],
+    }
+}
 
 @auth_app.route("/")
 def index():
@@ -14,6 +24,29 @@ def index():
 @auth_app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
+        is_oauth_request = all(param in request.args for param in ("response_type", "client_id", "redirect_uri"))
+
+        if is_oauth_request:
+            oauth_params = {
+                "response_type": request.args.get("response_type"),
+                "client_id": request.args.get("client_id"),
+                "redirect_uri": request.args.get("redirect_uri"),
+                "scope": request.args.get("scope"),
+                "state": request.args.get("state"),
+                "code_challenge": request.args.get("code_challenge"),
+                "code_challenge_method": request.args.get("code_challenge_method"),
+                "nonce": request.args.get("nonce"),
+            }
+
+            client_id = oauth_params["client_id"]
+            redirect_uri = oauth_params["redirect_uri"]
+            allowed_redirect_uris = registered_clients.get(client_id, {}).get("redirect_uris", [])
+
+            if redirect_uri not in allowed_redirect_uris:
+                return "Invalid redirect URI", 403
+
+            session["pending_oauth"] = oauth_params
+
         return render_template("login.html")
     if request.method == "POST":
         username = request.form.get("username")
@@ -35,6 +68,17 @@ def login():
         password_correct = hmac.compare_digest(candidate_hash, bytes.fromhex(account_data["password"]))
 
         if username_correct and password_correct:
+            if "pending_oauth" in session:
+                oauth_params = session["pending_oauth"]
+                code = base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8")
+                now_utc = datetime.now(timezone.utc)
+                future_time_utc = now_utc + timedelta(minutes=5)
+                oidc_flows[code] = oauth_params
+                oidc_flows[code]["expires_at"] = future_time_utc
+                oidc_flows[code]["subject"] = username
+                redirect_uri = oauth_params["redirect_uri"]
+                return redirect(f"{redirect_uri}?code={code}")
+
             return "Success"
 
         return "Username or password incorrect", 403
@@ -49,11 +93,11 @@ def oidc_conf():
         "jwks_uri": "http://localhost:5000/keys",
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
-        "scopes_supported": ["openid"],
         "id_token_signing_alg_values_supported": ["RS256"],
-        "scopes_supported": ["openid", "profile", "email"],
+        "scopes_supported": ["openid"],
         "claims_supported": ["sub", "iss", "aud", "exp", "iat", "name"],
-        "code_challenge_methods_supported": ["S256"]
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"]
     }
 
 @auth_app.route("/keys")
