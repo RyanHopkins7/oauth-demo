@@ -1,6 +1,12 @@
 from flask import Flask, render_template, request, redirect, session
 from datetime import datetime, timedelta, timezone
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.hazmat.primitives.serialization import PrivateFormat
+from cryptography.hazmat.primitives.serialization import NoEncryption
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.hazmat.primitives.asymmetric import padding
 import json
 import hashlib
 import hmac
@@ -23,6 +29,7 @@ def index():
 
 @auth_app.route("/login", methods=["GET", "POST"])
 def login():
+    global oidc_flows, registered_clients
     if request.method == "GET":
         is_oauth_request = all(param in request.args for param in ("response_type", "client_id", "redirect_uri"))
 
@@ -95,7 +102,7 @@ def oidc_conf():
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
         "scopes_supported": ["openid"],
-        "claims_supported": ["sub", "iss", "aud", "exp", "iat", "name"],
+        "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"]
     }
@@ -105,6 +112,54 @@ def jwks():
     with open("pubkey.json", "r") as file:
         public_jwk = json.loads(file.read())
     return {"keys": [public_jwk]}
+
+@auth_app.route("/token", methods=["POST"])
+def token():
+    global oidc_flows, registered_clients
+    data = request.get_json()
+
+    code = data.get("code")
+    verifier = data.get("verifier")
+
+    if not code or not verifier:
+        return {"error": "Must include code and verifier"}, 400
+
+    flow = oidc_flows.pop(code)
+
+    if not flow:
+        return {"error": "Code is invalid"}, 403
+
+    candidate_challenge = hashlib.sha256(bytes.fromhex(verifier))
+    challenge = bytes.fromhex(flow["code_challenge"])
+    if not hmac.compare_digest(candidate_challenge, challenge):
+        return {"error": "Verifier is invalid"}, 403
+
+    now_utc = datetime.now(timezone.utc)
+    future_time_utc = now_utc + timedelta(minutes=5)
+
+    token = json.dumps({
+        "sub": flow["subject"],
+        "iss": "http://localhost:5000",
+        "aud": "http://localhost:5001",
+        "exp": future_time_utc.timestamp(),
+        "iat": now_utc.timestamp()
+    })
+
+    with open("privkey.pem", "r") as file:
+        privkey = load_pem_private_key(file.read().encode("utf-8"), password=None)
+
+    signature = privkey.sign(
+        token.encode("utf-8"),
+        padding=padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        algorithm=hashes.SHA256()
+    )
+
+    signed_token = base64.urlsafe_b64encode(token.encode("utf-8")).decode("utf-8") + "." + base64.urlsafe_b64encode(signature).decode("utf-8")
+
+    return {"token": signed_token}
 
 if __name__ == "__main__":
     private_key = rsa.generate_private_key(
@@ -124,18 +179,12 @@ if __name__ == "__main__":
         "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(2048//8, byteorder="big")).decode("utf-8")
     })
 
-    private_jwk = json.dumps({
-        "kty": "RSA",
-        "use": "sig",
-        "kid": "key1",
-        "alg": "RS256",
-        "d": base64.urlsafe_b64encode(private_numbers.d.to_bytes(2048//8, byteorder="big")).decode("utf-8")
-    })
+    print(private_key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()))
 
     with open("pubkey.json", "w") as file:
         file.write(public_jwk)
 
-    with open("privkey.json", "w") as file:
-        file.write(private_jwk)
+    with open("privkey.pem", "w") as file:
+        file.write(private_key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()).decode("utf-8"))
 
     auth_app.run(host="localhost", port="5000")

@@ -1,4 +1,4 @@
 venv
 account.json
-privkey.json
+privkey.pem
 pubkey.json
