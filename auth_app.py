@@ -13,13 +13,13 @@ import hmac
 import base64
 import os
 
-auth_app = Flask(__name__, static_folder="static", static_url_path="/static")
-auth_app.secret_key = os.urandom(32)
+auth_app = Flask(__name__)
+auth_app.secret_key = os.urandom(16)
 
 oidc_flows = {}
 registered_clients = {
     "test_client": {
-        "redirect_uris": ["http://localhost:5001"],
+        "redirect_uris": ["http://127.0.0.2:5001"],
     }
 }
 
@@ -77,7 +77,7 @@ def login():
         if username_correct and password_correct:
             if "pending_oauth" in session:
                 oauth_params = session["pending_oauth"]
-                code = base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8")
+                code = os.urandom(16).hex()
                 now_utc = datetime.now(timezone.utc)
                 future_time_utc = now_utc + timedelta(minutes=5)
                 oidc_flows[code] = oauth_params
@@ -96,7 +96,6 @@ def oidc_conf():
         "issuer": "http://localhost:5000",
         "authorization_endpoint": "http://localhost:5000/login",
         "token_endpoint": "http://localhost:5000/token",
-        "userinfo_endpoint": "http://localhost:5000/userinfo",
         "jwks_uri": "http://localhost:5000/keys",
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
@@ -140,7 +139,7 @@ def token():
     token = json.dumps({
         "sub": flow["subject"],
         "iss": "http://localhost:5000",
-        "aud": "http://localhost:5001",
+        "aud": "http://127.0.0.2:5001",
         "exp": future_time_utc.timestamp(),
         "iat": now_utc.timestamp()
     })
@@ -178,8 +177,6 @@ if __name__ == "__main__":
         "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, byteorder="big")).decode("utf-8"),
         "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(2048//8, byteorder="big")).decode("utf-8")
     })
-
-    print(private_key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()))
 
     with open("pubkey.json", "w") as file:
         file.write(public_jwk)
