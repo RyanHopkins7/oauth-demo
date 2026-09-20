@@ -19,7 +19,7 @@ auth_app.secret_key = os.urandom(16)
 oidc_flows = {}
 registered_clients = {
     "test_client": {
-        "redirect_uris": ["http://127.0.0.2:5001"],
+        "redirect_uris": ["http://127.0.0.2:5001/oauth"],
     }
 }
 
@@ -83,8 +83,9 @@ def login():
                 oidc_flows[code] = oauth_params
                 oidc_flows[code]["expires_at"] = future_time_utc
                 oidc_flows[code]["subject"] = username
+                state = oauth_params["state"]
                 redirect_uri = oauth_params["redirect_uri"]
-                return redirect(f"{redirect_uri}?code={code}")
+                return redirect(f"{redirect_uri}?code={code}&state={state}")
 
             return "Success"
 
