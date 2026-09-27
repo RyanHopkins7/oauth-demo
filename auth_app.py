@@ -101,7 +101,7 @@ def oidc_conf():
         "scopes_supported": ["openid"],
         "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
         "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["none"]
+        "token_endpoint_auth_methods_supported": ["client_secret"]
     }
 
 @auth_app.route("/keys")
