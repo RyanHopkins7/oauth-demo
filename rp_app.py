@@ -1,4 +1,8 @@
 from flask import Flask, session, request
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
+from cryptography.exceptions import InvalidSignature
 import os
 import hashlib
 import hmac
@@ -54,10 +58,40 @@ def oauth():
 
     token, signature = token_res.json().get("token").split(".")
 
-    if not token:
-        return "Failed to get token", 403
+    if not token or not signature:
+        return "Failed to get token or signature", 403
+    
+    decoded_token = base64.urlsafe_b64decode(token)
+    decoded_signature = base64.urlsafe_b64decode(signature)
 
-    return f"Success!<br>OIDC token:\n{base64.urlsafe_b64decode(token)}.{signature}"
+    keys_res = requests.get("http://localhost:5000/keys")
+    key_json = keys_res.json()["keys"][0]
+
+    pub_key = RSAPublicNumbers(
+        int.from_bytes(base64.urlsafe_b64decode(key_json["e"])),
+        int.from_bytes(base64.urlsafe_b64decode(key_json["n"]))
+    ).public_key()
+
+    try:
+        pub_key.verify(
+            decoded_signature,
+            decoded_token,
+            padding=padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            algorithm=hashes.SHA256()
+        )
+    except InvalidSignature:
+        return "Error: token signature was not verified"
+
+    return f"""
+Success!
+<br>
+OIDC token:\n{decoded_token.decode()}.{signature}
+<br>
+Signature verified
+"""
 
 if __name__ == "__main__":
     auth_app.run(host="127.0.0.2", port="5001")
