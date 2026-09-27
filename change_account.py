@@ -5,6 +5,8 @@ import json
 
 parser = argparse.ArgumentParser(description="Set user account details")
 
+parser.add_argument("-m", "--email", type=str, help="Account email")
+
 parser.add_argument("-u", "--username", type=str, help="Account username")
 
 parser.add_argument("-p", "--password", type=str, help="Account password")
@@ -17,10 +19,11 @@ p = 5
 dklen = 32
 
 salt = os.urandom(16)
-pw_hash = hashlib.scrypt(args.password.decode(), salt=salt, n=n, r=r, p=p, dklen=dklen)
+pw_hash = hashlib.scrypt(args.password.encode(), salt=salt, n=n, r=r, p=p, dklen=dklen)
 
 account = json.dumps({
     "username": args.username,
+    "email": args.email,
     "password": pw_hash.hex(),
     "salt": salt.hex(),
     "n": n,
