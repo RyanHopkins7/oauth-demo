@@ -3,6 +3,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.exceptions import InvalidSignature
+from datetime import datetime, timezone
 import os
 import hashlib
 import hmac
@@ -85,12 +86,29 @@ def oauth():
     except InvalidSignature:
         return "Error: token signature was not verified"
 
+    token_json = json.loads(decoded_token.decode())
+
+    if token_json["iss"] != "http://localhost:5000":
+        return "Error: token issuer is invalid"
+
+    if token_json["aud"] != "http://127.0.0.2:5001":
+        return "Error: token audience is invalid"
+
+    if datetime.fromtimestamp(token_json["exp"], tz=timezone.utc) < datetime.now(timezone.utc):
+        return "Error: token is expired"
+
     return f"""
 Success!
 <br>
 OIDC token:\n{decoded_token.decode()}.{signature}
 <br>
 Signature verified
+<br>
+Issuer is valid
+<br>
+Audience is valid
+<br>
+Token is not expired
 """
 
 if __name__ == "__main__":
