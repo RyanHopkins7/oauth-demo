@@ -97,7 +97,7 @@ def oidc_conf():
         "jwks_uri": "http://localhost:5000/keys",
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
-        "id_token_signing_alg_values_supported": ["RS256"],
+        "id_token_signing_alg_values_supported": ["PS256"],
         "scopes_supported": ["openid"],
         "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
         "code_challenge_methods_supported": ["S256"],
