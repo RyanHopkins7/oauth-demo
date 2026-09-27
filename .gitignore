@@ -2,3 +2,4 @@ venv
 account.json
 privkey.pem
 pubkey.json
+registered_clients.json

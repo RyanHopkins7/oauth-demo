@@ -17,11 +17,8 @@ auth_app = Flask(__name__)
 auth_app.secret_key = os.urandom(16)
 
 oidc_flows = {}
-registered_clients = {
-    "test_client": {
-        "redirect_uris": ["http://127.0.0.2:5001/oauth"],
-    }
-}
+with open("registered_clients.json", "r") as file:
+    registered_clients = json.loads(file.read())
 
 @auth_app.route("/")
 def index():
@@ -63,7 +60,7 @@ def login():
             account_data = json.loads(file.read())
 
         candidate_hash = hashlib.scrypt(
-            password.encode("utf-8"), 
+            password.encode(), 
             salt=bytes.fromhex(account_data["salt"]), 
             n=account_data["n"],
             r=account_data["r"],
@@ -71,7 +68,7 @@ def login():
             dklen=account_data["dklen"]
         )
 
-        username_correct = hmac.compare_digest(username.encode("utf-8"), account_data["username"].encode("utf-8"))
+        username_correct = hmac.compare_digest(username.encode(), account_data["username"].encode())
         password_correct = hmac.compare_digest(candidate_hash, bytes.fromhex(account_data["password"]))
 
         if username_correct and password_correct:
@@ -120,19 +117,27 @@ def token():
 
     code = data.get("code")
     verifier = data.get("verifier")
+    client_id = data.get("client_id")
+    client_secret = data.get("client_secret")
 
-    if not code or not verifier:
-        return {"error": "Must include code and verifier"}, 400
+    if not code or not verifier or not client_id or not client_secret:
+        return {"error": "Must include code, verifier, client_id, and client_secret"}, 400
 
     flow = oidc_flows.pop(code)
 
     if not flow:
         return {"error": "Code is invalid"}, 403
 
-    candidate_challenge = hashlib.sha256(bytes.fromhex(verifier))
+    candidate_challenge = hashlib.sha256(bytes.fromhex(verifier)).digest()
     challenge = bytes.fromhex(flow["code_challenge"])
     if not hmac.compare_digest(candidate_challenge, challenge):
         return {"error": "Verifier is invalid"}, 403
+
+    if not hmac.compare_digest(
+        base64.urlsafe_b64decode(registered_clients.get(client_id, {}).get("client_secret")),
+        base64.urlsafe_b64decode(client_secret)
+    ):
+        return {"error": "Client secret is invalid"}, 403
 
     now_utc = datetime.now(timezone.utc)
     future_time_utc = now_utc + timedelta(minutes=5)
@@ -146,10 +151,10 @@ def token():
     })
 
     with open("privkey.pem", "r") as file:
-        privkey = load_pem_private_key(file.read().encode("utf-8"), password=None)
+        privkey = load_pem_private_key(file.read().encode(), password=None)
 
     signature = privkey.sign(
-        token.encode("utf-8"),
+        token.encode(),
         padding=padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),
             salt_length=padding.PSS.MAX_LENGTH
@@ -157,7 +162,7 @@ def token():
         algorithm=hashes.SHA256()
     )
 
-    signed_token = base64.urlsafe_b64encode(token.encode("utf-8")).decode("utf-8") + "." + base64.urlsafe_b64encode(signature).decode("utf-8")
+    signed_token = base64.urlsafe_b64encode(token.encode()).decode() + "." + base64.urlsafe_b64encode(signature).decode()
 
     return {"token": signed_token}
 
@@ -175,14 +180,14 @@ if __name__ == "__main__":
         "use": "sig",
         "kid": "key1",
         "alg": "RS256",
-        "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, byteorder="big")).decode("utf-8"),
-        "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(2048//8, byteorder="big")).decode("utf-8")
+        "e": base64.urlsafe_b64encode(public_numbers.e.to_bytes(3, byteorder="big")).decode(),
+        "n": base64.urlsafe_b64encode(public_numbers.n.to_bytes(2048//8, byteorder="big")).decode()
     })
 
     with open("pubkey.json", "w") as file:
         file.write(public_jwk)
 
     with open("privkey.pem", "w") as file:
-        file.write(private_key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()).decode("utf-8"))
+        file.write(private_key.private_bytes(encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()).decode())
 
     auth_app.run(host="localhost", port="5000")

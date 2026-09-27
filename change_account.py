@@ -17,7 +17,7 @@ p = 5
 dklen = 32
 
 salt = os.urandom(16)
-pw_hash = hashlib.scrypt(args.password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=dklen)
+pw_hash = hashlib.scrypt(args.password.decode(), salt=salt, n=n, r=r, p=p, dklen=dklen)
 
 account = json.dumps({
     "username": args.username,
