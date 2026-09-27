@@ -128,6 +128,9 @@ def token():
     if not flow:
         return {"error": "Code is invalid"}, 403
 
+    if flow["expires_at"] < datetime.now(timezone.utc):
+            return {"error": "Code is expired"}, 403
+
     candidate_challenge = hashlib.sha256(bytes.fromhex(verifier)).digest()
     challenge = bytes.fromhex(flow["code_challenge"])
     if not hmac.compare_digest(candidate_challenge, challenge):
